@@ -8,3 +8,7 @@ export const APPLICATION_TOKENS = {
 export const mapKey = "50917ccaca2d88f3ef36c4e4626e3a52";
 
 export const mapURL = "http://api.positionstack.com/v1/forward";
+
+export const REDIS_HOST =
+  "redis://redis-10957.c264.ap-south-1-1.ec2.cloud.redislabs.com:10957";
+export const REDIS_PASSWORD = "PIxs5DT9QDAPvcW6amN6XjUjTNdZiV2o";

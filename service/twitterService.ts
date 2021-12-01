@@ -1,10 +1,90 @@
 import { AxiosResponse } from "axios";
-import { count } from "console";
 import { TwitterApi } from "twitter-api-v2";
 import { getLocationData } from "../utils/apiUtils";
+import { twitterAPIClient } from "../utils/clientUtils";
 import { RESPONSE_MESSAGES } from "../utils/constantUtils";
-import { APPLICATION_TOKENS } from "../utils/envUtils";
+import { APPLICATION_TOKENS, PORT } from "../utils/envUtils";
 import { logger } from "../utils/loggerUtils";
+
+export const makeAuthorizationRequest = async (req, res) => {
+  try {
+    const loginSecret = req.query.loginSecret;
+    if (loginSecret) {
+      const link = await twitterAPIClient.generateAuthLink(
+        `http://localhost:${PORT}/callback`,
+        { linkMode: "authorize" }
+      );
+      // To be saved in Redis against USER_OUATH_oauth_token = {loginSecret , oauth_token , oauth_token_secret }
+      // req.session.oauthToken = link.oauth_token;
+      // req.session.oauthSecret = link.oauth_token_secret;
+
+      res.status(200).send({ success: true, data: link.url });
+    } else {
+      res.status().send({
+        success: false,
+        message: RESPONSE_MESSAGES.BAD_REQUEST,
+        description: "Missing required param loginSecret",
+      });
+    }
+  } catch (error) {
+    logger.error(error);
+    res.status(502).send({
+      success: false,
+      message: RESPONSE_MESSAGES.TWITTER_API_ERROR,
+      description: error.message,
+    });
+  }
+};
+
+export const callbackAuthorization = async (req, res) => {
+  try {
+    // Invalid request
+    if (!req.query.oauth_token || !req.query.oauth_verifier) {
+      res.status(400).render("error", {
+        error:
+          "Bad request, or you denied application access. Please renew your request.",
+      });
+      return;
+    }
+
+    const token = req.query.oauth_token as string;
+    const verifier = req.query.oauth_verifier as string;
+
+    // retrieve USER_OUATH_oauth_token based on USER_OUATH_req.query.oauth_token
+    // {loginSecret , oauth_token , oauth_token_secret }
+    const savedToken = req.session.oauthToken; // oauth_token
+    const savedSecret = req.session.oauthSecret; // oauth_token_secret
+
+    if (!savedToken || !savedSecret || savedToken !== token) {
+      res.status(400).render("error", {
+        error:
+          "OAuth token is not known or invalid. Your request may have expire. Please renew the auth process.",
+      });
+      return;
+    }
+
+    // Build a temporary client to get access token
+    const tempClient = new TwitterApi({
+      ...APPLICATION_TOKENS,
+      accessToken: token,
+      accessSecret: savedSecret,
+    });
+
+    const { accessToken, accessSecret, screenName, userId } =
+      await tempClient.login(verifier);
+    // update  USER_OUATH_oauth_token based on USER_OUATH_req.query.oauth_token
+    // {loginSecret , oauth_token , oauth_token_secret ,accessToken, accessSecret ,userId }
+    // socket emit with loginId
+    res.send("callback success");
+  } catch (error) {
+    logger.error(error);
+    res.status(502).send({
+      success: false,
+      message: RESPONSE_MESSAGES.TWITTER_API_ERROR,
+      description: error.message,
+    });
+  }
+};
 
 export const getProfileDetails = async (req, res) => {
   try {
