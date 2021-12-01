@@ -1,7 +1,7 @@
 import { redisClient } from "./clientUtils";
 import { logger } from "./loggerUtils";
 
-export const setRedis = async (key: string, value: any) => {
+export const setRedisData = async (key: string, value: any) => {
   try {
     await redisClient.set(key, value);
     return 1;

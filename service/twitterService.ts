@@ -1,26 +1,42 @@
 import { AxiosResponse } from "axios";
 import { TwitterApi } from "twitter-api-v2";
+import { socket } from "../app";
+import { AccessTokenCacheData, OAuthCacheData, UserData } from "../models";
 import { getLocationData } from "../utils/apiUtils";
-import { twitterAPIClient } from "../utils/clientUtils";
-import { RESPONSE_MESSAGES } from "../utils/constantUtils";
-import { APPLICATION_TOKENS, PORT } from "../utils/envUtils";
+import {
+  getUserAuthorizedTwitterAPIClient,
+  twitterAPIClient,
+} from "../utils/clientUtils";
+import {
+  ACCESS_TOKEN_PREFIX,
+  OAUTH_TOKEN_PREFIX,
+  RESPONSE_MESSAGES,
+  USER_AUTHENTICATED,
+} from "../utils/constantUtils";
+import { APPLICATION_TOKENS, AUTH_CALLBACK_URL, PORT } from "../utils/envUtils";
 import { logger } from "../utils/loggerUtils";
+import { getRedis, setRedisData } from "../utils/redisUtils";
 
 export const makeAuthorizationRequest = async (req, res) => {
   try {
     const loginSecret = req.query.loginSecret;
     if (loginSecret) {
-      const link = await twitterAPIClient.generateAuthLink(
-        `http://localhost:${PORT}/callback`,
-        { linkMode: "authorize" }
-      );
-      // To be saved in Redis against USER_OUATH_oauth_token = {loginSecret , oauth_token , oauth_token_secret }
-      // req.session.oauthToken = link.oauth_token;
-      // req.session.oauthSecret = link.oauth_token_secret;
+      const link = await twitterAPIClient.generateAuthLink(AUTH_CALLBACK_URL, {
+        linkMode: "authorize",
+      });
 
-      res.status(200).send({ success: true, data: link.url });
+      const data: OAuthCacheData = {
+        loginSecret: loginSecret,
+        oauthToken: link.oauth_token,
+        oauthTokenSecret: link.oauth_token_secret,
+      };
+      await setRedisData(
+        OAUTH_TOKEN_PREFIX + link.oauth_token,
+        JSON.stringify(data)
+      );
+      res.status(200).send({ success: true, data: { url: link.url } });
     } else {
-      res.status().send({
+      res.status(400).send({
         success: false,
         message: RESPONSE_MESSAGES.BAD_REQUEST,
         description: "Missing required param loginSecret",
@@ -49,40 +65,45 @@ export const callbackAuthorization = async (req, res) => {
 
     const token = req.query.oauth_token as string;
     const verifier = req.query.oauth_verifier as string;
+    const oAuthData = await getRedis(OAUTH_TOKEN_PREFIX + token);
+    if (oAuthData) {
+      let parsed: OAuthCacheData = JSON.parse(oAuthData) as OAuthCacheData;
+      // retrieve USER_OUATH_oauth_token based on USER_OUATH_req.query.oauth_token
+      // {loginSecret , oauth_token , oauth_token_secret }
+      const savedToken = parsed.oauthToken;
+      const savedSecret = parsed.oauthTokenSecret;
 
-    // retrieve USER_OUATH_oauth_token based on USER_OUATH_req.query.oauth_token
-    // {loginSecret , oauth_token , oauth_token_secret }
-    const savedToken = req.session.oauthToken; // oauth_token
-    const savedSecret = req.session.oauthSecret; // oauth_token_secret
+      if (!savedToken || !savedSecret || savedToken !== token) {
+        res.status(400).render("error", {
+          error:
+            "OAuth token is not known or invalid. Your request may have expire. Please renew the auth process.",
+        });
+        return;
+      }
 
-    if (!savedToken || !savedSecret || savedToken !== token) {
-      res.status(400).render("error", {
-        error:
-          "OAuth token is not known or invalid. Your request may have expire. Please renew the auth process.",
-      });
-      return;
+      const userAuthorizedTwitterAPIClient = getUserAuthorizedTwitterAPIClient(
+        token,
+        savedSecret
+      );
+
+      const { accessToken, accessSecret, screenName, userId } =
+        await userAuthorizedTwitterAPIClient.login(verifier);
+
+      const data: AccessTokenCacheData = {
+        accessToken: accessToken,
+        accessSecret: accessSecret,
+        userId: userId,
+      };
+      await setRedisData(ACCESS_TOKEN_PREFIX + userId, JSON.stringify(data));
+      socket.emit(
+        USER_AUTHENTICATED,
+        JSON.stringify({ userId: userId } as UserData)
+      );
+      res.send("<script>window.close();</script > ");
     }
-
-    // Build a temporary client to get access token
-    const tempClient = new TwitterApi({
-      ...APPLICATION_TOKENS,
-      accessToken: token,
-      accessSecret: savedSecret,
-    });
-
-    const { accessToken, accessSecret, screenName, userId } =
-      await tempClient.login(verifier);
-    // update  USER_OUATH_oauth_token based on USER_OUATH_req.query.oauth_token
-    // {loginSecret , oauth_token , oauth_token_secret ,accessToken, accessSecret ,userId }
-    // socket emit with loginId
-    res.send("callback success");
   } catch (error) {
     logger.error(error);
-    res.status(502).send({
-      success: false,
-      message: RESPONSE_MESSAGES.TWITTER_API_ERROR,
-      description: error.message,
-    });
+    res.send("Please close this window and try again !");
   }
 };
 
