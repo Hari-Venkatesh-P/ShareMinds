@@ -1,6 +1,6 @@
-export const PORT = 5000;
+export const PORT = 8080;
 
-export const AUTH_CALLBACK_URL = `http://localhost:${PORT}/callback`
+export const AUTH_CALLBACK_URL = `http://3.19.31.112:${PORT}/callback`
 
 export const APPLICATION_TOKENS = {
   appKey: "V44yoYgXezrBdfYsBetpPLEzz",
