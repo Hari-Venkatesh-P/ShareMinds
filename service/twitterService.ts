@@ -110,13 +110,14 @@ export const callbackAuthorization = async (req, res) => {
 export const getProfileDetails = async (req, res) => {
   try {
     const userId = req.query.userId;
-    if (userId) {
-      const tempClient = new TwitterApi({
-        ...APPLICATION_TOKENS,
-        accessToken: "1004446443690577920-3482dvSyhpT1vvNWhGLnylB0jWQOs7",
-        accessSecret: "LxvuE6aHTsod18BizA9h7yjAsYvIYF0TLNWcEj0YKd5uN",
-      });
-      const profileData = await tempClient.v2.user(userId, {
+    const acessTokenData = await getRedis(ACCESS_TOKEN_PREFIX + userId);
+    if (userId && acessTokenData) {
+      const parsed = JSON.parse(acessTokenData) as AccessTokenCacheData;
+      const userAuthorizedTwitterAPIClient = getUserAuthorizedTwitterAPIClient(
+        parsed.accessToken,
+        parsed.accessSecret
+      );
+      const profileData = await userAuthorizedTwitterAPIClient.v2.user(userId, {
         "user.fields": [
           "created_at",
           "description",
@@ -156,38 +157,42 @@ export const searchTweets = async (req, res) => {
   try {
     const userId = req.query.userId;
     const queryString = req.query.queryString;
+    const acessTokenData = await getRedis(ACCESS_TOKEN_PREFIX + userId);
 
-    if (userId && queryString) {
-      const tempClient = new TwitterApi({
-        ...APPLICATION_TOKENS,
-        accessToken: "1004446443690577920-3482dvSyhpT1vvNWhGLnylB0jWQOs7",
-        accessSecret: "LxvuE6aHTsod18BizA9h7yjAsYvIYF0TLNWcEj0YKd5uN",
-      });
-      const tweetDetails = await tempClient.v2.search(queryString, {
-        "tweet.fields": [
-          "attachments",
-          "author_id",
-          //   "context_annotations",
-          //   "conversation_id",
-          "created_at",
-          //   "entities",
-          //   "geo",
-          "id",
-          //   "in_reply_to_user_id",
-          //   "lang",
-          "public_metrics",
-          "possibly_sensitive",
-          //   "referenced_tweets",
-          //   "reply_settings",
-          "source",
-          "text",
-          //   "withheld",
-        ],
-        max_results: 10,
-      });
+    if (userId && queryString && acessTokenData) {
+      const parsed = JSON.parse(acessTokenData) as AccessTokenCacheData;
+      const userAuthorizedTwitterAPIClient = getUserAuthorizedTwitterAPIClient(
+        parsed.accessToken,
+        parsed.accessSecret
+      );
+      const tweetDetails = await userAuthorizedTwitterAPIClient.v2.search(
+        queryString,
+        {
+          "tweet.fields": [
+            "attachments",
+            "author_id",
+            //   "context_annotations",
+            //   "conversation_id",
+            "created_at",
+            //   "entities",
+            //   "geo",
+            "id",
+            //   "in_reply_to_user_id",
+            //   "lang",
+            "public_metrics",
+            "possibly_sensitive",
+            //   "referenced_tweets",
+            //   "reply_settings",
+            "source",
+            "text",
+            //   "withheld",
+          ],
+          max_results: 10,
+        }
+      );
       res.status(200).send({ success: true, data: tweetDetails });
     } else {
-      res.status().send({
+      res.status(500).send({
         success: false,
         message: RESPONSE_MESSAGES.BAD_REQUEST,
         description: "Missing required param userId or Query String",
@@ -209,23 +214,24 @@ export const getTimeLineTweets = async (req, res) => {
     const count = req.query.count;
     const since_id = req.query.since_id;
     const max_id = req.query.max_id;
-
-    if (userId && count) {
-      const tempClient = new TwitterApi({
-        ...APPLICATION_TOKENS,
-        accessToken: "1004446443690577920-3482dvSyhpT1vvNWhGLnylB0jWQOs7",
-        accessSecret: "LxvuE6aHTsod18BizA9h7yjAsYvIYF0TLNWcEj0YKd5uN",
-      });
-
+    const acessTokenData = await getRedis(ACCESS_TOKEN_PREFIX + userId);
+    if (userId && count && acessTokenData) {
+      const parsed = JSON.parse(acessTokenData) as AccessTokenCacheData;
+      const userAuthorizedTwitterAPIClient = getUserAuthorizedTwitterAPIClient(
+        parsed.accessToken,
+        parsed.accessSecret
+      );
       let params: any = {};
       params["count"] = count;
       if (since_id) params["since_id"] = since_id;
       if (max_id) params["max_id"] = max_id;
       params["tweet_mode"] = "extended";
-      params["exclude_replies"] = true;
+      params["exclude_replies"] = false;
       params["include_entities"] = true;
-      params["trim_user"] = true;
-      const homeTimeline = await tempClient.v1.homeTimeline(params);
+      params["trim_user"] = false;
+      const homeTimeline = await userAuthorizedTwitterAPIClient.v1.homeTimeline(
+        params
+      );
 
       res.status(200).send({ success: true, data: homeTimeline });
     } else {
@@ -249,45 +255,48 @@ export const getTweet = async (req, res) => {
   try {
     const userId = req.query.userId;
     const tweetId = req.query.tweetId;
+    const acessTokenData = await getRedis(ACCESS_TOKEN_PREFIX + userId);
+    if (userId && tweetId && acessTokenData) {
+      const parsed = JSON.parse(acessTokenData) as AccessTokenCacheData;
+      const userAuthorizedTwitterAPIClient = getUserAuthorizedTwitterAPIClient(
+        parsed.accessToken,
+        parsed.accessSecret
+      );
 
-    if (userId && tweetId) {
-      const tempClient = new TwitterApi({
-        ...APPLICATION_TOKENS,
-        accessToken: "1004446443690577920-3482dvSyhpT1vvNWhGLnylB0jWQOs7",
-        accessSecret: "LxvuE6aHTsod18BizA9h7yjAsYvIYF0TLNWcEj0YKd5uN",
-      });
-
-      const tweetData = await tempClient.v2.singleTweet(tweetId, {
-        expansions: [
-          "attachments.poll_ids",
-          "attachments.media_keys",
-          "author_id",
-          "referenced_tweets.id",
-          "in_reply_to_user_id",
-          "geo.place_id",
-          "entities.mentions.username",
-          "referenced_tweets.id.author_id",
-        ],
-        "tweet.fields": [
-          "attachments",
-          "author_id",
-          "context_annotations",
-          "conversation_id",
-          "created_at",
-          "entities",
-          "geo",
-          "id",
-          "in_reply_to_user_id",
-          "lang",
-          "public_metrics",
-          "possibly_sensitive",
-          "referenced_tweets",
-          "reply_settings",
-          "source",
-          "text",
-          "withheld",
-        ],
-      });
+      const tweetData = await userAuthorizedTwitterAPIClient.v2.singleTweet(
+        tweetId,
+        {
+          expansions: [
+            "attachments.poll_ids",
+            "attachments.media_keys",
+            "author_id",
+            "referenced_tweets.id",
+            "in_reply_to_user_id",
+            "geo.place_id",
+            "entities.mentions.username",
+            "referenced_tweets.id.author_id",
+          ],
+          "tweet.fields": [
+            "attachments",
+            "author_id",
+            "context_annotations",
+            "conversation_id",
+            "created_at",
+            "entities",
+            "geo",
+            "id",
+            "in_reply_to_user_id",
+            "lang",
+            "public_metrics",
+            "possibly_sensitive",
+            "referenced_tweets",
+            "reply_settings",
+            "source",
+            "text",
+            "withheld",
+          ],
+        }
+      );
 
       res.status(200).send({ success: true, data: tweetData });
     } else {
@@ -311,8 +320,9 @@ export const getLatestTrends = async (req, res) => {
   try {
     const userId = req.query.userId;
     const locationQuery = req.query.locationQuery;
+    const acessTokenData = await getRedis(ACCESS_TOKEN_PREFIX + userId);
 
-    if (userId && locationQuery) {
+    if (userId && locationQuery && acessTokenData) {
       const locationDataResponse: AxiosResponse = await getLocationData(
         locationQuery
       );
@@ -323,19 +333,22 @@ export const getLatestTrends = async (req, res) => {
         locationDataResponse.data.data.length > 0
       ) {
         const locationData = locationDataResponse.data.data[0];
-        const tempClient = new TwitterApi({
-          ...APPLICATION_TOKENS,
-          accessToken: "1004446443690577920-3482dvSyhpT1vvNWhGLnylB0jWQOs7",
-          accessSecret: "LxvuE6aHTsod18BizA9h7yjAsYvIYF0TLNWcEj0YKd5uN",
-        });
-        const woeidData = await tempClient.v1.get(
+        const parsed = JSON.parse(acessTokenData) as AccessTokenCacheData;
+        const userAuthorizedTwitterAPIClient =
+          getUserAuthorizedTwitterAPIClient(
+            parsed.accessToken,
+            parsed.accessSecret
+          );
+
+        const woeidData = await userAuthorizedTwitterAPIClient.v1.get(
           `trends/closest.json?lat=${locationData["latitude"]}&long=${locationData["longitude"]}`
         );
         if (woeidData && woeidData.length > 0) {
-          const closestTrendingData = await tempClient.v1.get(
-            `trends/place.json?id=${woeidData[0].woeid}`
-          );
-          const worldTrendingData = await tempClient.v1.get(
+          const closestTrendingData =
+            await userAuthorizedTwitterAPIClient.v1.get(
+              `trends/place.json?id=${woeidData[0].woeid}`
+            );
+          const worldTrendingData = await userAuthorizedTwitterAPIClient.v1.get(
             `trends/place.json?id=1`
           );
           res.status(200).send({
