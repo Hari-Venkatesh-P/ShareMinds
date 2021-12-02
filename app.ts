@@ -9,6 +9,10 @@ import { logger } from "./utils/loggerUtils";
 
 const app = express();
 app.use(cors());
+app.get('/test',function(req,res){
+  res.send("HELLO FROM TEST ROUTE")
+})
+
 app.use(twitterRouter);
 
 const server = http.createServer(app);
